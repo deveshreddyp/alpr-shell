@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALPR Pipeline</title>
+    <!-- Using Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class', // Enable dark mode
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                },
+            },
+        }
+    </script>
+    <style>
+        /* Simple spinning animation */
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.2);
+            border-left-color: #3b82f6; /* blue-500 */
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        /* Style for the 'Pending' and 'Error' text */
+        .status-text {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #6b7280; /* gray-500 */
+        }
+        .img-placeholder {
+            background-color: #1f2937; /* gray-800 */
+            border: 2px dashed #374151; /* gray-700 */
+            min-height: 250px;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-200 font-sans p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <h1 class="text-3xl font-bold text-center mb-2">Automated License Plate Recognition</h1>
+        <p class="text-center text-gray-400 mb-8">Running on a Python + Flask + OpenCV backend</p>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <!-- Column 1: Upload and Controls -->
+            <div class="lg:col-span-1 bg-gray-800 p-6 rounded-lg shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 border-b border-gray-700 pb-2">1. Load Image</h2>
+                
+                <!-- File Input -->
+                <input type="file" id="image-upload" accept="image/*" class="mb-4 block w-full text-sm text-gray-400
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-md file:border-0
+                    file:text-sm file:font-semibold
+                    file:bg-blue-600 file:text-blue-50
+                    hover:file:bg-blue-700 cursor-pointer">
+
+                <!-- Uploaded Image Preview -->
+                <h3 class="font-semibold mb-2 text-gray-300">Uploaded Image:</h3>
+                <div class="img-placeholder rounded-md overflow-hidden">
+                    <img id="uploaded-image-preview" src="" alt="Uploaded Image Preview" class="hidden w-full h-auto object-contain">
+                    <div id="upload-placeholder" class="status-text">
+                        Please select an image
+                    </div>
+                </div>
+
+                <!-- Control Buttons -->
+                <button id="run-button" class="mt-6 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition duration-200 shadow-md" disabled>
+                    Run Python Pipeline
+                </button>
+                <div id="status-message" class="mt-4 text-center text-sm"></div>
+            </div>
+
+            <!-- Column 2: Processing Pipeline -->
+            <div class="lg:col-span-2 bg-gray-800 p-6 rounded-lg shadow-lg">
+                <h2 class="text-xl font-semibold mb-4 border-b border-gray-700 pb-2">2. Processing Pipeline</h2>
+                
+                <div class="space-y-6">
+                    <!-- Step 1: Grayscale -->
+                    <div>
+                        <h3 class="text-lg font-semibold mb-2 text-blue-300">Step 1: Grayscale Conversion</h3>
+                        <div class="img-placeholder rounded-md overflow-hidden">
+                            <img id="step-1-img" src="" class="hidden w-full h-auto object-contain">
+                            <div id="step-1-placeholder" class="status-text">Pending</div>
+                        </div>
+                    </div>
+
+                    <!-- Step 2: Edge Detection -->
+                    <div>
+                        <h3 class="text-lg font-semibold mb-2 text-blue-300">Step 2: Edge Detection (Canny)</h3>
+                        <div class="img-placeholder rounded-md overflow-hidden">
+                            <img id="step-2-img" src="" class="hidden w-full h-auto object-contain">
+                            <div id="step-2-placeholder" class="status-text">Pending</div>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Plate Localization -->
+                    <div>
+                        <!-- **** TITLE UPDATED **** -->
+                        <h3 class="text-lg font-semibold mb-2 text-blue-300">Step 3: Plate Localization</h3>
+                        <div class="img-placeholder rounded-md overflow-hidden">
+                            <img id="step-3-img" src="" class="hidden w-full h-auto object-contain">
+                            <div id="step-3-placeholder" class="status-text">Pending</div>
+                        </div>
+                    </div>
+
+                    <!-- Step 4: Character Recognition -->
+                    <div>
+                        <h3 class="text-lg font-semibold mb-2 text-blue-300">Step 4: Character Recognition (OCR)</h3>
+                        <textarea id="step-4-ocr" class="w-full h-24 bg-gray-900 border border-gray-700 rounded-md p-3 text-gray-200 font-mono text-lg" readonly>...</textarea>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const imageUpload = document.getElementById('image-upload');
+        const uploadedImagePreview = document.getElementById('uploaded-image-preview');
+        const uploadPlaceholder = document.getElementById('upload-placeholder');
+        const runButton = document.getElementById('run-button');
+        const statusMessage = document.getElementById('status-message');
+
+        let uploadedFile = null;
+
+        // --- Image Upload Handling ---
+        imageUpload.addEventListener('change', (event) => {
+            uploadedFile = event.target.files[0];
+            if (uploadedFile) {
+                // Use FileReader to display the image preview
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    uploadedImagePreview.src = e.target.result;
+                    uploadedImagePreview.classList.remove('hidden');
+                    uploadPlaceholder.classList.add('hidden');
+                };
+                reader.readAsDataURL(uploadedFile);
+                
+                // Enable the run button
+                runButton.disabled = false;
+                runButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                statusMessage.textContent = 'Ready to process.';
+                resetPipelineUI();
+            }
+        });
+
+        // --- Reset UI function ---
+        function resetPipelineUI() {
+            // Find all image placeholders
+            const images = [
+                document.getElementById('step-1-img'),
+                document.getElementById('step-2-img'),
+                document.getElementById('step-3-img')
+            ];
+            // Find all text placeholders
+            const placeholders = [
+                document.getElementById('step-1-placeholder'),
+                document.getElementById('step-2-placeholder'),
+                document.getElementById('step-3-placeholder')
+            ];
+            
+            // Hide images, show placeholders
+            images.forEach(img => {
+                img.src = '';
+                img.classList.add('hidden');
+            });
+            placeholders.forEach(p => {
+                p.classList.remove('hidden');
+                p.innerHTML = 'Pending';
+            });
+            
+            // Reset OCR text
+            document.getElementById('step-4-ocr').value = '...';
+        }
+
+        // --- Run Pipeline ---
+        runButton.addEventListener('click', async () => {
+            if (!uploadedFile) {
+                statusMessage.textContent = 'Error: No file selected.';
+                statusMessage.classList.add('text-red-500');
+                return;
+            }
+
+            // --- UI: Set to "Loading" state ---
+            runButton.disabled = true;
+            runButton.textContent = 'Processing...';
+            statusMessage.textContent = 'Sending image to Python server...';
+            resetPipelineUI(); // Clear previous results
+            
+            // Show spinners in placeholders
+            document.getElementById('step-1-placeholder').innerHTML = '<div class="spinner"></div>';
+            document.getElementById('step-2-placeholder').innerHTML = '<div class="spinner"></div>';
+            document.getElementById('step-3-placeholder').innerHTML = '<div class="spinner"></div>';
+
+            // --- API Call ---
+            const formData = new FormData();
+            formData.append('image', uploadedFile);
+
+            try {
+                // Send the image to the Flask server
+                const response = await fetch('http://127.0.0.1:5000/process', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+
+                // --- UI: Update with results ---
+                statusMessage.textContent = 'Pipeline finished!';
+                statusMessage.classList.remove('text-red-500');
+                statusMessage.classList.add('text-green-500');
+
+                // Update Step 1
+                const step1Img = document.getElementById('step-1-img');
+                const step1Placeholder = document.getElementById('step-1-placeholder');
+                step1Img.src = "data:image/jpeg;base64," + data.step_1_gray;
+                step1Img.classList.remove('hidden');
+                step1Placeholder.classList.add('hidden');
+                
+                // Update Step 2
+                const step2Img = document.getElementById('step-2-img');
+                const step2Placeholder = document.getElementById('step-2-placeholder');
+                step2Img.src = "data:image/jpeg;base64," + data.step_2_edges;
+                step2Img.classList.remove('hidden');
+                step2Placeholder.classList.add('hidden');
+
+                // --- **** NEW JAVASCRIPT CODE **** ---
+                // Update Step 3
+                const step3Img = document.getElementById('step-3-img');
+                const step3Placeholder = document.getElementById('step-3-placeholder');
+                step3Img.src = "data:image/jpeg;base64," + data.step_3_plate;
+                step3Img.classList.remove('hidden');
+                step3Placeholder.classList.add('hidden');
+                // --- **** END NEW CODE **** ---
+
+                // Re-enable button
+                runButton.disabled = false;
+                runButton.textContent = 'Run Python Pipeline';
+
+            } catch (error) {
+                console.error('Error:', error);
+                statusMessage.textContent = 'Error: Could not connect to Python server.';
+                statusMessage.classList.add('text-red-500');
+                
+                // Show error in placeholders
+                document.getElementById('step-1-placeholder').innerHTML = '<span class="text-red-500">Error</span>';
+                document.getElementById('step-2-placeholder').innerHTML = '<span class="text-red-500">Error</span>';
+                document.getElementById('step-3-placeholder').innerHTML = '<span class="text-red-500">Error</span>';
+                
+                // Re-enable button
+                runButton.disabled = false;
+                runButton.textContent = 'Run Python Pipeline';
+            }
+        });
+    </script>
+</body>
+</html>
+
