@@ -1,0 +1,27 @@
+# ------------------------------------------------------------------
+# CONFIGURATION FOR THE YOLOv8 TRAINING
+# This file is now correct for your 'archive' folder structure.
+# ------------------------------------------------------------------
+
+# 1. SET THE PATH TO YOUR DATASET
+# This is the full, absolute path to your 'archive' folder.
+# This path is based on your previous error log.
+path: C:/Users/deves/Desktop/ALPR-PROJECT/archive
+
+# 2. DEFINE THE TRAIN/VAL/TEST LOCATIONS
+# These paths are relative to the 'path' above and match your
+# screenshot (images/train, images/val, etc.)
+train: images/train
+val: images/val
+test: images/test
+
+# 3. DEFINE THE LABEL LOCATIONS
+# We also need to tell it where the labels are.
+train_labels: labels/train
+val_labels: labels/val
+test_labels: labels/test
+
+# 4. DEFINE THE CLASSES
+# Our dataset only has one class (license plate)
+nc: 1  # Number of classes
+names: ['license_plate'] # Class name

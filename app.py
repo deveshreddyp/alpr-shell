@@ -1,78 +1,88 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import cv2
-import numpy as np
 import base64
+import numpy as np
+import cv2
+import traceback
 
 # Import our pipeline functions
 from alpr_pipeline import (
-    step_1_grayscale, 
-    step_2_edge_detection,
-    step_3_localize_plate # <-- Import the new step
+    step_3_localize_plate_yolo,
+    step_4_ocr_and_prep
 )
 
-# Initialize the Flask app
 app = Flask(__name__)
-# Enable CORS (Cross-Origin Resource Sharing)
-CORS(app)
-
-def encode_image_to_base64(image):
-    """Encodes an OpenCV image (Numpy array) to a base64 string"""
-    # We encode as JPEG. PNG is also an option.
-    _, buffer = cv2.imencode('.jpg', image)
-    # Convert buffer to a byte string
-    jpg_as_text = base64.b64encode(buffer).decode('utf-8')
-    return jpg_as_text
+CORS(app)  # This allows our webpage to talk to the server
 
 @app.route('/process', methods=['POST'])
 def process_image():
-    """
-    This is our API endpoint. It receives an image,
-    runs the CV pipeline, and returns the processed images.
-    """
-    
-    # Get the image file from the request
-    file = request.files['image']
-    
-    # Read the image file into a numpy array
-    filestr = file.read()
-    npimg = np.frombuffer(filestr, np.uint8)
-    original_image = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+    try:
+        data = request.json
+        if 'image' not in data:
+            return jsonify({'error': 'No image data provided'}), 400
 
-    if original_image is None:
-        return jsonify({"error": "Could not decode image"}), 400
+        # --- Step 1: Read Image ---
+        # Decode the base64 image
+        img_data = base64.b64decode(data['image'])
+        img_np = np.frombuffer(img_data, dtype=np.uint8)
+        
+        # original_image is the main image we'll use for processing
+        original_image = cv2.imdecode(img_np, cv2.IMREAD_COLOR)
+        
+        # We also create a simple grayscale version for display
+        gray_image_display = cv2.cvtColor(original_image, cv2.COLOR_BGR2GRAY)
+        
+        # --- Step 3: Localize Plate (YOLO) ---
+        # This function returns BOTH the localized image and the cropped plate
+        # The 'cropped_plate' is just the small rectangle of the plate
+        # The 'localized_image' is the full car image with the green box drawn on it
+        localized_image, cropped_plate = step_3_localize_plate_yolo(original_image)
+        
+        # Prepare response object
+        response_data = {
+            'step_1_gray': encode_image(gray_image_display),
+            'step_3_localized': None,     # Image with bounding box
+            'step_2_ocr_prepped': None,   # B&W warped plate
+            'step_4_ocr_text': None         # Final text
+        }
 
-    print("Image received, running pipeline...")
+        # --- Step 4 & 2: OCR and Pre-processing ---
+        # We check if a plate was found in Step 3
+        if cropped_plate is not None:
+            # We now run OCR. This function returns:
+            # 1. The final text
+            # 2. The pre-processed image (thresholded) that was used for OCR
+            ocr_text, ocr_prepped_image = step_4_ocr_and_prep(cropped_plate)
+            
+            # Update response with our new data
+            response_data['step_3_localized'] = encode_image(localized_image)
+            response_data['step_2_ocr_prepped'] = encode_image(ocr_prepped_image)
+            response_data['step_4_ocr_text'] = ocr_text
 
-    # --- Run Pipeline Steps ---
-    
-    # Step 1: Grayscale
-    gray_image = step_1_grayscale(original_image)
-    
-    # Step 2: Edge Detection
-    edges_image_bgr = step_2_edge_detection(gray_image) # This returns a BGR image
-    
-    # Step 3: Plate Localization
-    # This step needs the original image (to draw on) and the edges image (to find contours)
-    # It returns the image with the box drawn, and the contour coordinates for the next step
-    localized_image, plate_contour = step_3_localize_plate(original_image, edges_image_bgr)
-    
-    # --- Encode Results ---
-    
-    # Grayscale image needs to be converted back to 3 channels for JPEG encoding
-    gray_for_encoding = cv2.cvtColor(gray_image, cv2.COLOR_GRAY2BGR)
+        else:
+            # Handle case where no plate was found
+            # We still send back the grayscale image
+            print("No plate detected by YOLO model.")
+            response_data['step_3_localized'] = None # No localization image
+            response_data['step_2_ocr_prepped'] = None # No pre-pped image
+            response_data['step_4_ocr_text'] = "No Plate Found"
 
-    results = {
-        "step_1_gray": encode_image_to_base64(gray_for_encoding),
-        "step_2_edges": encode_image_to_base64(edges_image_bgr),
-        "step_3_plate": encode_image_to_base64(localized_image), # <-- Send the new image
-        "step_4_ocr": "..." # Placeholder
-    }
-    
-    print("Pipeline finished, sending results.")
-    return jsonify(results)
+        return jsonify(response_data)
+
+    except Exception as e:
+        # Print the full error stack trace for debugging
+        print(f"Error: {e}")
+        traceback.print_exc() 
+        return jsonify({'error': str(e)}), 500
+
+def encode_image(image):
+    """Encodes an OpenCV image (numpy array) to a base64 string for JSON."""
+    if image is None:
+        return None
+    _, buffer = cv2.imencode('.png', image)
+    return base64.b64encode(buffer).decode('utf-8')
 
 if __name__ == '__main__':
-    # Run the server on http://127.0.0.1:5000
+    # debug=True will auto-reload the server when you save changes
+    # Use host='0.0.0.0' to make it accessible on your network (optional)
     app.run(debug=True, port=5000)
-

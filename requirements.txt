@@ -1,4 +1,7 @@
-opencv-python
-numpy
 flask
 flask-cors
+opencv-python
+numpy
+ultralytics
+torch
+pytesseract
